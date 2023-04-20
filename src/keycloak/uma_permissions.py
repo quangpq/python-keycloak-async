@@ -240,9 +240,9 @@ def build_permission_param(permissions):
     if permissions is None or permissions == "":
         return set()
     if isinstance(permissions, str):
-        return set((permissions,))
+        return {permissions}
     if isinstance(permissions, UMAPermission):
-        return set((str(permissions),))
+        return {str(permissions)}
 
     try:  # treat as dictionary of permissions
         result = set()

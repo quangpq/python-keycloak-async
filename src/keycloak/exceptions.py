@@ -23,7 +23,7 @@
 
 """Keycloak custom exceptions module."""
 
-import requests
+import httpx
 
 
 class KeycloakError(Exception):
@@ -151,9 +151,9 @@ def raise_error_from_response(response, error, expected_codes=None, skip_exists=
     """Raise an exception for the response.
 
     :param response: The response object
-    :type response: Response
+    :type response: Coroutine
     :param error: Error object to raise
-    :type error: dict or Exception
+    :type error: dict or Type[KeycloakError]
     :param expected_codes: Set of expected codes, which should not raise the exception
     :type expected_codes: Sequence[int]
     :param skip_exists: Indicates whether the response on already existing object should be ignored
@@ -167,7 +167,7 @@ def raise_error_from_response(response, error, expected_codes=None, skip_exists=
         expected_codes = [200, 201, 204]
 
     if response.status_code in expected_codes:
-        if response.status_code == requests.codes.no_content:
+        if response.status_code == httpx.codes.NO_CONTENT:
             return {}
 
         try:

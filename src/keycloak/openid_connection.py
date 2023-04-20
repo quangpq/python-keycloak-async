@@ -37,9 +37,6 @@ from .keycloak_openid import KeycloakOpenID
 
 class KeycloakOpenIDConnection(ConnectionManager):
     """A class to help with OpenID connections which can auto refresh tokens.
-
-    :param object: _description_
-    :type object: _type_
     """
 
     _server_url = None
@@ -56,19 +53,19 @@ class KeycloakOpenIDConnection(ConnectionManager):
     _expires_at = None
 
     def __init__(
-        self,
-        server_url,
-        username=None,
-        password=None,
-        token=None,
-        totp=None,
-        realm_name="master",
-        client_id="admin-cli",
-        verify=True,
-        client_secret_key=None,
-        custom_headers=None,
-        user_realm_name=None,
-        timeout=60,
+            self,
+            server_url,
+            username=None,
+            password=None,
+            token=None,
+            totp=None,
+            realm_name="master",
+            client_id="admin-cli",
+            verify=True,
+            client_secret_key=None,
+            custom_headers=None,
+            user_realm_name=None,
+            timeout=60,
     ):
         """Init method.
 
@@ -113,8 +110,28 @@ class KeycloakOpenIDConnection(ConnectionManager):
         self.user_realm_name = user_realm_name
         self.timeout = timeout
 
-        if self.token is None:
-            self.get_token()
+        self.keycloak_openid = KeycloakOpenID(
+            server_url=self.server_url,
+            client_id=self.client_id,
+            realm_name=self._get_token_realm_name(),
+            verify=self.verify,
+            client_secret_key=self.client_secret_key,
+            timeout=self.timeout,
+        )
+
+        self.headers = {}
+        self.custom_headers = custom_headers
+
+        super().__init__(
+            base_url=self.server_url, headers=self.headers, timeout=60, verify=self.verify
+        )
+
+    async def aclose(self):
+        await super().aclose()
+        await self.keycloak_openid.aclose()
+
+    async def init_token(self):
+        await self.get_token()
 
         self.headers = (
             {
@@ -123,11 +140,6 @@ class KeycloakOpenIDConnection(ConnectionManager):
             }
             if self.token is not None
             else {}
-        )
-        self.custom_headers = custom_headers
-
-        super().__init__(
-            base_url=self.server_url, headers=self.headers, timeout=60, verify=self.verify
         )
 
     @property
@@ -275,53 +287,44 @@ class KeycloakOpenIDConnection(ConnectionManager):
             # merge custom headers to main headers
             self.headers.update(self.custom_headers)
 
-    def get_token(self):
+    def _get_token_realm_name(self):
+        if self.user_realm_name:
+            return self.user_realm_name
+        elif self.realm_name:
+            return self.realm_name
+        return "master"
+
+    async def get_token(self):
         """Get admin token.
 
         The admin token is then set in the `token` attribute.
         """
-        if self.user_realm_name:
-            token_realm_name = self.user_realm_name
-        elif self.realm_name:
-            token_realm_name = self.realm_name
-        else:
-            token_realm_name = "master"
-
-        self.keycloak_openid = KeycloakOpenID(
-            server_url=self.server_url,
-            client_id=self.client_id,
-            realm_name=token_realm_name,
-            verify=self.verify,
-            client_secret_key=self.client_secret_key,
-            timeout=self.timeout,
-        )
+        self.keycloak_openid.realm_name = self._get_token_realm_name()
 
         grant_type = []
         if self.client_secret_key:
-            if self.user_realm_name:
-                self.realm_name = self.user_realm_name
             grant_type.append("client_credentials")
         elif self.username and self.password:
             grant_type.append("password")
 
         if grant_type:
-            self.token = self.keycloak_openid.token(
+            self.token = await self.keycloak_openid.token(
                 self.username, self.password, grant_type=grant_type, totp=self.totp
             )
         else:
             self.token = None
 
-    def refresh_token(self):
+    async def refresh_token(self):
         """Refresh the token.
 
         :raises KeycloakPostError: In case the refresh token request failed.
         """
         refresh_token = self.token.get("refresh_token", None) if self.token else None
         if refresh_token is None:
-            self.get_token()
+            await self.get_token()
         else:
             try:
-                self.token = self.keycloak_openid.refresh_token(refresh_token)
+                self.token = await self.keycloak_openid.refresh_token(refresh_token)
             except KeycloakPostError as e:
                 list_errors = [
                     b"Refresh token expired",
@@ -329,80 +332,96 @@ class KeycloakOpenIDConnection(ConnectionManager):
                     b"Session not active",
                 ]
                 if e.response_code == 400 and any(err in e.response_body for err in list_errors):
-                    self.get_token()
+                    await self.get_token()
                 else:
                     raise
 
         self.add_param_headers("Authorization", "Bearer " + self.token.get("access_token"))
 
-    def _refresh_if_required(self):
+    async def _refresh_if_required(self):
         if datetime.now() >= self.expires_at:
-            self.refresh_token()
+            await self.refresh_token()
 
-    def raw_get(self, *args, **kwargs):
+    async def raw_get(self, path, **kwargs):
         """Call connection.raw_get.
 
         If auto_refresh is set for *get* and *access_token* is expired, it will refresh the token
         and try *get* once more.
 
-        :param args: Additional arguments
-        :type args: tuple
+        :param path: Path for request.
+        :type path: str
         :param kwargs: Additional keyword arguments
-        :type kwargs: dict
         :returns: Response
         :rtype: Response
         """
-        self._refresh_if_required()
-        r = super().raw_get(*args, **kwargs)
+        await self._refresh_if_required()
+        r = await super().raw_get(path, **kwargs)
         return r
 
-    def raw_post(self, *args, **kwargs):
+    async def raw_post(self, path, data=None, json=None, files=None, headers=None, **kwargs):
         """Call connection.raw_post.
 
         If auto_refresh is set for *post* and *access_token* is expired, it will refresh the token
         and try *post* once more.
 
-        :param args: Additional arguments
-        :type args: tuple
+        :param path: Path for request.
+        :type path: str
+        :param data: Payload for request.
+        :type data: dict | None
+        :param json: JSON body for request.
+        :type json: dict | list | None
+        :param files: Multipart files.
+        :type files: dict | None
+        :param headers: Extra headers.
+        :type headers: dict | None
         :param kwargs: Additional keyword arguments
-        :type kwargs: dict
         :returns: Response
         :rtype: Response
         """
-        self._refresh_if_required()
-        r = super().raw_post(*args, **kwargs)
+        await self._refresh_if_required()
+        r = await super().raw_post(path, data, json, files, headers, **kwargs)
         return r
 
-    def raw_put(self, *args, **kwargs):
+    async def raw_put(self, path, data=None, json=None, files=None, headers=None, **kwargs):
         """Call connection.raw_put.
 
         If auto_refresh is set for *put* and *access_token* is expired, it will refresh the token
         and try *put* once more.
 
-        :param args: Additional arguments
-        :type args: tuple
+        :param path: Path for request.
+        :type path: str
+        :param data: Payload for request.
+        :type data: dict | None
+        :param json: JSON body for request.
+        :type json: dict | list | None
+        :param files: Multipart files.
+        :type files: dict | None
+        :param headers: Extra headers.
+        :type headers: dict | None
         :param kwargs: Additional keyword arguments
-        :type kwargs: dict
         :returns: Response
         :rtype: Response
         """
-        self._refresh_if_required()
-        r = super().raw_put(*args, **kwargs)
+        await self._refresh_if_required()
+        r = await super().raw_put(path, data, json, files, headers, **kwargs)
         return r
 
-    def raw_delete(self, *args, **kwargs):
+    async def raw_delete(self, path, json=None, data=None, **kwargs):
         """Call connection.raw_delete.
 
         If auto_refresh is set for *delete* and *access_token* is expired,
         it will refresh the token and try *delete* once more.
 
-        :param args: Additional arguments
-        :type args: tuple
+        :param path: Path for request.
+        :type path: str
+        :param json: JSON body for request.
+        :type json: dict | list | None
+        :param data: Payload for request.
+        :type data: dict | list | None
         :param kwargs: Additional keyword arguments
-        :type kwargs: dict
         :returns: Response
         :rtype: Response
         """
-        self._refresh_if_required()
-        r = super().raw_delete(*args, **kwargs)
+        await self._refresh_if_required()
+        r = await super().raw_delete(path, json, data, **kwargs)
         return r

@@ -29,6 +29,7 @@ class to handle authentication and token manipulation.
 
 import json
 
+import aiofiles
 from jose import jwt
 
 from .authorization import Authorization
@@ -72,15 +73,15 @@ class KeycloakOpenID:
     """
 
     def __init__(
-        self,
-        server_url,
-        realm_name,
-        client_id,
-        client_secret_key=None,
-        verify=True,
-        custom_headers=None,
-        proxies=None,
-        timeout=60,
+            self,
+            server_url,
+            realm_name,
+            client_id,
+            client_secret_key=None,
+            verify=True,
+            custom_headers=None,
+            proxies=None,
+            timeout=60,
     ):
         """Init method.
 
@@ -110,6 +111,15 @@ class KeycloakOpenID:
         )
 
         self.authorization = Authorization()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *excinfo):
+        await self.aclose()
+
+    async def aclose(self):
+        await self.connection.aclose()
 
     @property
     def client_id(self):
@@ -199,7 +209,7 @@ class KeycloakOpenID:
         """
         return self.client_id + "/" + role
 
-    def _token_info(self, token, method_token_info, **kwargs):
+    async def _token_info(self, token, method_token_info, **kwargs):
         """Getter for the token data.
 
         :param token: Token
@@ -212,13 +222,13 @@ class KeycloakOpenID:
         :rtype: dict
         """
         if method_token_info == "introspect":
-            token_info = self.introspect(token)
+            token_info = await self.introspect(token)
         else:
             token_info = self.decode_token(token, **kwargs)
 
         return token_info
 
-    def well_known(self):
+    async def well_known(self):
         """Get the well_known object.
 
         The most important endpoint to understand is the well-known configuration
@@ -229,10 +239,10 @@ class KeycloakOpenID:
         :rtype: dict
         """
         params_path = {"realm-name": self.realm_name}
-        data_raw = self.connection.raw_get(URL_WELL_KNOWN.format(**params_path))
+        data_raw = await self.connection.raw_get(URL_WELL_KNOWN.format(**params_path))
         return raise_error_from_response(data_raw, KeycloakGetError)
 
-    def auth_url(self, redirect_uri, scope="email", state=""):
+    async def auth_url(self, redirect_uri, scope="email", state=""):
         """Get authorization URL endpoint.
 
         :param redirect_uri: Redirect url to receive oauth code
@@ -245,7 +255,7 @@ class KeycloakOpenID:
         :rtype: str
         """
         params_path = {
-            "authorization-endpoint": self.well_known()["authorization_endpoint"],
+            "authorization-endpoint": (await self.well_known())["authorization_endpoint"],
             "client-id": self.client_id,
             "redirect-uri": redirect_uri,
             "scope": scope,
@@ -253,16 +263,16 @@ class KeycloakOpenID:
         }
         return URL_AUTH.format(**params_path)
 
-    def token(
-        self,
-        username="",
-        password="",
-        grant_type=["password"],
-        code="",
-        redirect_uri="",
-        totp=None,
-        scope="openid",
-        **extra
+    async def token(
+            self,
+            username="",
+            password="",
+            grant_type=None,
+            code="",
+            redirect_uri="",
+            totp=None,
+            scope="openid",
+            **extra
     ):
         """Retrieve user token.
 
@@ -278,20 +288,21 @@ class KeycloakOpenID:
         :param password: Password
         :type password: str
         :param grant_type: Grant type
-        :type grant_type: str
+        :type grant_type: List[str]
         :param code: Code
         :type code: str
         :param redirect_uri: Redirect URI
         :type redirect_uri: str
         :param totp: Time-based one-time password
-        :type totp: int
+        :type totp: str
         :param scope: Scope, defaults to openid
         :type scope: str
         :param extra: Additional extra arguments
-        :type extra: dict
         :returns: Keycloak token
         :rtype: dict
         """
+        if grant_type is None:
+            grant_type = ["password"]
         params_path = {"realm-name": self.realm_name}
         payload = {
             "username": username,
@@ -309,10 +320,10 @@ class KeycloakOpenID:
             payload["totp"] = totp
 
         payload = self._add_secret_key(payload)
-        data_raw = self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
+        data_raw = await self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
         return raise_error_from_response(data_raw, KeycloakPostError)
 
-    def refresh_token(self, refresh_token, grant_type=["refresh_token"]):
+    async def refresh_token(self, refresh_token, grant_type=None):
         """Refresh the user token.
 
         The token endpoint is used to obtain tokens. Tokens can either be obtained by
@@ -325,10 +336,12 @@ class KeycloakOpenID:
         :param refresh_token: Refresh token from Keycloak
         :type refresh_token: str
         :param grant_type: Grant type
-        :type grant_type: str
+        :type grant_type: List[str]
         :returns: New token
         :rtype: dict
         """
+        if grant_type is None:
+            grant_type = ["refresh_token"]
         params_path = {"realm-name": self.realm_name}
         payload = {
             "client_id": self.client_id,
@@ -336,17 +349,17 @@ class KeycloakOpenID:
             "refresh_token": refresh_token,
         }
         payload = self._add_secret_key(payload)
-        data_raw = self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
+        data_raw = await self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
         return raise_error_from_response(data_raw, KeycloakPostError)
 
-    def exchange_token(
-        self,
-        token: str,
-        client_id: str,
-        audience: str,
-        subject: str,
-        requested_token_type: str = "urn:ietf:params:oauth:token-type:refresh_token",
-        scope: str = "openid",
+    async def exchange_token(
+            self,
+            token: str,
+            client_id: str,
+            audience: str,
+            subject: str,
+            requested_token_type: str = "urn:ietf:params:oauth:token-type:refresh_token",
+            scope: str = "openid",
     ) -> dict:
         """Exchange user token.
 
@@ -379,10 +392,10 @@ class KeycloakOpenID:
             "scope": scope,
         }
         payload = self._add_secret_key(payload)
-        data_raw = self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
+        data_raw = await self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
         return raise_error_from_response(data_raw, KeycloakPostError)
 
-    def userinfo(self, token):
+    async def userinfo(self, token):
         """Get the user info object.
 
         The userinfo endpoint returns standard claims about the authenticated user,
@@ -397,10 +410,10 @@ class KeycloakOpenID:
         """
         self.connection.add_param_headers("Authorization", "Bearer " + token)
         params_path = {"realm-name": self.realm_name}
-        data_raw = self.connection.raw_get(URL_USERINFO.format(**params_path))
+        data_raw = await self.connection.raw_get(URL_USERINFO.format(**params_path))
         return raise_error_from_response(data_raw, KeycloakGetError)
 
-    def logout(self, refresh_token):
+    async def logout(self, refresh_token):
         """Log out the authenticated user.
 
         :param refresh_token: Refresh token from Keycloak
@@ -411,10 +424,10 @@ class KeycloakOpenID:
         params_path = {"realm-name": self.realm_name}
         payload = {"client_id": self.client_id, "refresh_token": refresh_token}
         payload = self._add_secret_key(payload)
-        data_raw = self.connection.raw_post(URL_LOGOUT.format(**params_path), data=payload)
+        data_raw = await self.connection.raw_post(URL_LOGOUT.format(**params_path), data=payload)
         return raise_error_from_response(data_raw, KeycloakPostError, expected_codes=[204])
 
-    def certs(self):
+    async def certs(self):
         """Get certificates.
 
         The certificate endpoint returns the public keys enabled by the realm, encoded as a
@@ -427,10 +440,10 @@ class KeycloakOpenID:
         :rtype: dict
         """
         params_path = {"realm-name": self.realm_name}
-        data_raw = self.connection.raw_get(URL_CERTS.format(**params_path))
+        data_raw = await self.connection.raw_get(URL_CERTS.format(**params_path))
         return raise_error_from_response(data_raw, KeycloakGetError)
 
-    def public_key(self):
+    async def public_key(self):
         """Retrieve the public key.
 
         The public key is exposed by the realm page directly.
@@ -439,10 +452,10 @@ class KeycloakOpenID:
         :rtype: str
         """
         params_path = {"realm-name": self.realm_name}
-        data_raw = self.connection.raw_get(URL_REALM.format(**params_path))
+        data_raw = await self.connection.raw_get(URL_REALM.format(**params_path))
         return raise_error_from_response(data_raw, KeycloakGetError)["public_key"]
 
-    def entitlement(self, token, resource_server_id):
+    async def entitlement(self, token, resource_server_id):
         """Get entitlements from the token.
 
         Client applications can use a specific endpoint to obtain a special security token
@@ -460,14 +473,14 @@ class KeycloakOpenID:
         """
         self.connection.add_param_headers("Authorization", "Bearer " + token)
         params_path = {"realm-name": self.realm_name, "resource-server-id": resource_server_id}
-        data_raw = self.connection.raw_get(URL_ENTITLEMENT.format(**params_path))
+        data_raw = await self.connection.raw_get(URL_ENTITLEMENT.format(**params_path))
 
         if data_raw.status_code == 404:
             return raise_error_from_response(data_raw, KeycloakDeprecationError)
 
         return raise_error_from_response(data_raw, KeycloakGetError)  # pragma: no cover
 
-    def introspect(self, token, rpt=None, token_type_hint=None):
+    async def introspect(self, token, rpt=None, token_type_hint=None):
         """Introspect the user token.
 
         The introspection endpoint is used to retrieve the active state of a token.
@@ -497,11 +510,13 @@ class KeycloakOpenID:
                 raise KeycloakRPTNotFound("Can't found RPT.")
 
         payload = self._add_secret_key(payload)
-
-        data_raw = self.connection.raw_post(URL_INTROSPECT.format(**params_path), data=payload)
+        data_raw = await self.connection.raw_post(
+            URL_INTROSPECT.format(**params_path),
+            data=payload,
+        )
         return raise_error_from_response(data_raw, KeycloakPostError)
 
-    def decode_token(self, token, key, algorithms=["RS256"], **kwargs):
+    def decode_token(self, token, key, algorithms=None, **kwargs):
         """Decode user token.
 
         A JSON Web Key (JWK) is a JavaScript Object Notation (JSON) data
@@ -524,20 +539,23 @@ class KeycloakOpenID:
         :returns: Decoded token
         :rtype: dict
         """
+        if algorithms is None:
+            algorithms = ["RS256"]
         return jwt.decode(token, key, algorithms=algorithms, audience=self.client_id, **kwargs)
 
-    def load_authorization_config(self, path):
+    async def load_authorization_config(self, path):
         """Load Keycloak settings (authorization).
 
         :param path: settings file (json)
         :type path: str
         """
-        with open(path, "r") as fp:
-            authorization_json = json.load(fp)
+        async with aiofiles.open(path, "r") as f:
+            content = await f.read()
+            authorization_json = json.loads(content)
 
         self.authorization.load_config(authorization_json)
 
-    def get_policies(self, token, method_token_info="introspect", **kwargs):
+    async def get_policies(self, token, method_token_info="introspect", **kwargs):
         """Get policies by user token.
 
         :param token: User token
@@ -545,7 +563,6 @@ class KeycloakOpenID:
         :param method_token_info: Method for token info decoding
         :type method_token_info: str
         :param kwargs: Additional keyword arguments
-        :type kwargs: dict
         :return: Policies
         :rtype: dict
         :raises KeycloakAuthorizationConfigError: In case of bad authorization configuration
@@ -556,7 +573,7 @@ class KeycloakOpenID:
                 "Keycloak settings not found. Load Authorization Keycloak settings."
             )
 
-        token_info = self._token_info(token, method_token_info, **kwargs)
+        token_info = await self._token_info(token, method_token_info, **kwargs)
 
         if method_token_info == "introspect" and not token_info["active"]:
             raise KeycloakInvalidTokenError("Token expired or invalid.")
@@ -575,7 +592,7 @@ class KeycloakOpenID:
 
         return list(set(policies))
 
-    def get_permissions(self, token, method_token_info="introspect", **kwargs):
+    async def get_permissions(self, token, method_token_info="introspect", **kwargs):
         """Get permission by user token.
 
         :param token: user token
@@ -583,7 +600,6 @@ class KeycloakOpenID:
         :param method_token_info: Decode token method
         :type method_token_info: str
         :param kwargs: parameters for decode
-        :type kwargs: dict
         :returns: permissions list
         :rtype: list
         :raises KeycloakAuthorizationConfigError: In case of bad authorization configuration
@@ -594,7 +610,7 @@ class KeycloakOpenID:
                 "Keycloak settings not found. Load Authorization Keycloak settings."
             )
 
-        token_info = self._token_info(token, method_token_info, **kwargs)
+        token_info = await self._token_info(token, method_token_info, **kwargs)
 
         if method_token_info == "introspect" and not token_info["active"]:
             raise KeycloakInvalidTokenError("Token expired or invalid.")
@@ -613,7 +629,7 @@ class KeycloakOpenID:
 
         return list(set(permissions))
 
-    def uma_permissions(self, token, permissions=""):
+    async def uma_permissions(self, token, permissions=""):
         """Get UMA permissions by user token with requested permissions.
 
         The token endpoint is used to retrieve UMA permissions from Keycloak. It can only be
@@ -628,7 +644,7 @@ class KeycloakOpenID:
         :returns: Keycloak server response
         :rtype: dict
         """
-        permission = build_permission_param(permissions)
+        permission = list(build_permission_param(permissions))
 
         params_path = {"realm-name": self.realm_name}
         payload = {
@@ -639,10 +655,10 @@ class KeycloakOpenID:
         }
 
         self.connection.add_param_headers("Authorization", "Bearer " + token)
-        data_raw = self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
+        data_raw = await self.connection.raw_post(URL_TOKEN.format(**params_path), data=payload)
         return raise_error_from_response(data_raw, KeycloakPostError)
 
-    def has_uma_access(self, token, permissions):
+    async def has_uma_access(self, token, permissions):
         """Determine whether user has uma permissions with specified user token.
 
         :param token: user token
@@ -656,7 +672,7 @@ class KeycloakOpenID:
         """
         needed = build_permission_param(permissions)
         try:
-            granted = self.uma_permissions(token, permissions)
+            granted = await self.uma_permissions(token, permissions)
         except (KeycloakPostError, KeycloakAuthenticationError) as e:
             if e.response_code == 403:  # pragma: no cover
                 return AuthStatus(
@@ -681,7 +697,7 @@ class KeycloakOpenID:
             is_logged_in=True, is_authorized=len(needed) == 0, missing_permissions=needed
         )
 
-    def register_client(self, token: str, payload: dict):
+    async def register_client(self, token: str, payload: dict):
         """Create a client.
 
         ClientRepresentation:
@@ -697,7 +713,7 @@ class KeycloakOpenID:
         params_path = {"realm-name": self.realm_name}
         self.connection.add_param_headers("Authorization", "Bearer " + token)
         self.connection.add_param_headers("Content-Type", "application/json")
-        data_raw = self.connection.raw_post(
-            URL_CLIENT_REGISTRATION.format(**params_path), data=json.dumps(payload)
+        data_raw = await self.connection.raw_post(
+            URL_CLIENT_REGISTRATION.format(**params_path), json=payload
         )
         return raise_error_from_response(data_raw, KeycloakPostError)

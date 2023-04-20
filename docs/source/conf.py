@@ -62,9 +62,9 @@ source_suffix = ".rst"
 master_doc = "index"
 
 # General information about the project.
-project = "python-keycloak"
-copyright = "2017, Marcos Pereira"
-author = "Marcos Pereira"
+project = "python-keycloak-async"
+copyright = "2023, Quang Phan"
+author = "Quang Phan"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -142,7 +142,7 @@ html_show_copyright = True
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "python-keycloakdoc"
+htmlhelp_basename = "python-keycloak-asyncdoc"
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -168,8 +168,8 @@ latex_elements = {
 latex_documents = [
     (
         master_doc,
-        "python-keycloak.tex",
-        "python-keycloak Documentation",
+        "python-keycloak-async.tex",
+        "python-keycloak-async Documentation",
         "Marcos Pereira",
         "manual",
     )
@@ -180,7 +180,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "python-keycloak", "python-keycloak Documentation", [author], 1)]
+man_pages = [(master_doc, "python-keycloak-async", "python-keycloak-async Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output -------------------------------------------
@@ -191,10 +191,10 @@ man_pages = [(master_doc, "python-keycloak", "python-keycloak Documentation", [a
 texinfo_documents = [
     (
         master_doc,
-        "python-keycloak",
-        "python-keycloak Documentation",
+        "python-keycloak-async",
+        "python-keycloak-async Documentation",
         author,
-        "python-keycloak",
+        "python-keycloak-async",
         "One line description of project.",
         "Miscellaneous",
     )

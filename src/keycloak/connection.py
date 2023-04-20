@@ -23,13 +23,9 @@
 
 """Connection manager module."""
 
-try:
-    from urllib.parse import urljoin
-except ImportError:  # pragma: no cover
-    from urlparse import urljoin
+from urllib.parse import urljoin
 
-import requests
-from requests.adapters import HTTPAdapter
+import httpx
 
 from .exceptions import KeycloakConnectionError
 
@@ -49,7 +45,7 @@ class ConnectionManager(object):
     :type proxies: dict
     """
 
-    def __init__(self, base_url, headers={}, timeout=60, verify=True, proxies=None):
+    def __init__(self, base_url, headers=None, timeout=60, verify=True, proxies=None):
         """Init method.
 
         :param base_url: The server URL.
@@ -63,31 +59,22 @@ class ConnectionManager(object):
         :param proxies: The proxies servers requests is sent by.
         :type proxies: dict
         """
+        if headers is None:
+            headers = {}
         self.base_url = base_url
         self.headers = headers
         self.timeout = timeout
         self.verify = verify
-        self._s = requests.Session()
-        self._s.auth = lambda x: x  # don't let requests add auth headers
+        self._s = httpx.AsyncClient(verify=verify, proxies=proxies)
+        self._s.auth = None  # don't let requests add auth headers
 
         # retry once to reset connection with Keycloak after  tomcat's ConnectionTimeout
         # see https://github.com/marcospereirampj/python-keycloak/issues/36
-        for protocol in ("https://", "http://"):
-            adapter = HTTPAdapter(max_retries=1)
-            # adds POST to retry whitelist
-            allowed_methods = set(adapter.max_retries.allowed_methods)
-            allowed_methods.add("POST")
-            adapter.max_retries.allowed_methods = frozenset(allowed_methods)
+        self._s.transport = httpx.AsyncHTTPTransport(retries=1)
 
-            self._s.mount(protocol, adapter)
-
-        if proxies:
-            self._s.proxies.update(proxies)
-
-    def __del__(self):
-        """Del method."""
+    async def aclose(self):
         if hasattr(self, "_s"):
-            self._s.close()
+            await self._s.aclose()
 
     @property
     def base_url(self):
@@ -183,99 +170,114 @@ class ConnectionManager(object):
         """
         self.headers.pop(key, None)
 
-    def raw_get(self, path, **kwargs):
+    async def raw_get(self, path, **kwargs) -> httpx.Response:
         """Submit get request to the path.
 
         :param path: Path for request.
         :type path: str
         :param kwargs: Additional arguments
-        :type kwargs: dict
         :returns: Response the request.
-        :rtype: Response
         :raises KeycloakConnectionError: HttpError Can't connect to server.
         """
         try:
-            return self._s.get(
+            return await self._s.get(
                 urljoin(self.base_url, path),
                 params=kwargs,
                 headers=self.headers,
                 timeout=self.timeout,
-                verify=self.verify,
             )
         except Exception as e:
             raise KeycloakConnectionError("Can't connect to server (%s)" % e)
 
-    def raw_post(self, path, data, **kwargs):
+    async def raw_post(self, path, data=None, json=None, files=None, headers=None, **kwargs) -> httpx.Response:
         """Submit post request to the path.
 
         :param path: Path for request.
         :type path: str
         :param data: Payload for request.
-        :type data: dict
+        :type data: dict | None
+        :param json: JSON body for request.
+        :type json: dict | list | None
+        :param files: Multipart files.
+        :type files: dict | None
+        :param headers: Extra headers.
+        :type headers: dict | None
         :param kwargs: Additional arguments
-        :type kwargs: dict
         :returns: Response the request.
-        :rtype: Response
         :raises KeycloakConnectionError: HttpError Can't connect to server.
         """
         try:
-            return self._s.post(
+            _headers = self.headers
+            if headers is not None:
+                _headers.update(headers)
+            return await self._s.post(
                 urljoin(self.base_url, path),
                 params=kwargs,
                 data=data,
-                headers=self.headers,
+                json=json,
+                files=files,
+                headers=_headers,
                 timeout=self.timeout,
-                verify=self.verify,
             )
         except Exception as e:
             raise KeycloakConnectionError("Can't connect to server (%s)" % e)
 
-    def raw_put(self, path, data, **kwargs):
+    async def raw_put(self, path, data=None, json=None, files=None, headers=None, **kwargs) -> httpx.Response:
         """Submit put request to the path.
 
         :param path: Path for request.
         :type path: str
         :param data: Payload for request.
-        :type data: dict
+        :type data: dict | None
+        :param json: JSON body for request.
+        :type json: dict | list | None
+        :param files: Multipart files.
+        :type files: dict | None
+        :param headers: Extra headers.
+        :type headers: dict | None
         :param kwargs: Additional arguments
-        :type kwargs: dict
         :returns: Response the request.
-        :rtype: Response
         :raises KeycloakConnectionError: HttpError Can't connect to server.
         """
         try:
-            return self._s.put(
+            _headers = self.headers
+            if headers is not None:
+                _headers.update(headers)
+            return await self._s.put(
                 urljoin(self.base_url, path),
                 params=kwargs,
                 data=data,
-                headers=self.headers,
+                json=json,
+                files=files,
+                headers=_headers,
                 timeout=self.timeout,
-                verify=self.verify,
             )
         except Exception as e:
             raise KeycloakConnectionError("Can't connect to server (%s)" % e)
 
-    def raw_delete(self, path, data=None, **kwargs):
+    async def raw_delete(self, path, json=None, data=None, **kwargs) -> httpx.Response:
         """Submit delete request to the path.
 
         :param path: Path for request.
         :type path: str
+        :param json: JSON body for request.
+        :type json: dict | list | None
         :param data: Payload for request.
-        :type data: dict | None
+        :type data: dict | list | None
         :param kwargs: Additional arguments
-        :type kwargs: dict
         :returns: Response the request.
-        :rtype: Response
         :raises KeycloakConnectionError: HttpError Can't connect to server.
         """
         try:
-            return self._s.delete(
-                urljoin(self.base_url, path),
+            url = urljoin(self.base_url, path)
+            return await self._s.request(
+                "DELETE",
+                url,
+                json=json,
+                data=data,
                 params=kwargs,
-                data=data or dict(),
                 headers=self.headers,
                 timeout=self.timeout,
-                verify=self.verify,
             )
         except Exception as e:
             raise KeycloakConnectionError("Can't connect to server (%s)" % e)

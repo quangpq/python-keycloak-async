@@ -6,15 +6,21 @@ from keycloak.connection import ConnectionManager
 from keycloak.exceptions import KeycloakConnectionError
 
 
-def test_connection_proxy():
+@pytest.mark.asyncio
+async def test_connection_proxy():
     """Test proxies of connection manager."""
     cm = ConnectionManager(
-        base_url="http://test.test", proxies={"http://test.test": "localhost:8080"}
+        base_url="http://test.test", proxies={"http://test.test": "http://localhost:8080"}
     )
-    assert cm._s.proxies == {"http://test.test": "localhost:8080"}
+    for k, v in cm._s._mounts.items():
+        assert k.pattern == "http://test.test"
+        assert str(v._pool._proxy_url.origin) == "http://localhost:8080"
+        break
+    await cm.aclose()
 
 
-def test_headers():
+@pytest.mark.asyncio
+async def test_headers():
     """Test headers manipulation."""
     cm = ConnectionManager(base_url="http://test.test", headers={"H": "A"})
     assert cm.param_headers(key="H") == "A"
@@ -26,16 +32,19 @@ def test_headers():
     assert not cm.exist_param_headers(key="B")
     cm.del_param_headers(key="H")
     assert not cm.exist_param_headers(key="H")
+    await cm.aclose()
 
 
-def test_bad_connection():
+@pytest.mark.asyncio
+async def test_bad_connection():
     """Test bad connection."""
     cm = ConnectionManager(base_url="http://not.real.domain")
     with pytest.raises(KeycloakConnectionError):
-        cm.raw_get(path="bad")
+        await cm.raw_get(path="bad")
     with pytest.raises(KeycloakConnectionError):
-        cm.raw_delete(path="bad")
+        await cm.raw_delete(path="bad")
     with pytest.raises(KeycloakConnectionError):
-        cm.raw_post(path="bad", data={})
+        await cm.raw_post(path="bad", data={})
     with pytest.raises(KeycloakConnectionError):
-        cm.raw_put(path="bad", data={})
+        await cm.raw_put(path="bad", data={})
+    await cm.aclose()

@@ -1,3 +1,9 @@
+## v2.16.0 (2023-04-20)
+
+### Refactor
+
+- Migrate to asyncio
+
 ## v2.15.3 (2023-04-06)
 
 ### Fix

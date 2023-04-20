@@ -23,7 +23,7 @@ jobs:
           poetry install
       - name: Apply the tag version
         run: |
-          version=${{ github.ref_name }}
+          version=${{ github.ref_name }}-${{ github.run_number }}
           sed -Ei '/^version = /s|= "[0-9.]+"$|= "'${version:-1}'"|' pyproject.toml
       - name: Run build
         run: |
@@ -33,12 +33,4 @@ jobs:
           TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
           TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
         run: |
-          poetry run twine upload -u $TWINE_USERNAME -p $TWINE_PASSWORD dist/*
-      - name: Run changelog
-        run: |
-          poetry run tox -e changelog
-      - uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "docs: changelog update"
-          branch: master
-          file_pattern: CHANGELOG.md
+          poetry run twine upload --skip-existing -u $TWINE_USERNAME -p $TWINE_PASSWORD dist/*

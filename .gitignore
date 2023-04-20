@@ -107,3 +107,4 @@ main2.py
 s3air-authz-config.json
 .vscode
 _build
+.DS_Store

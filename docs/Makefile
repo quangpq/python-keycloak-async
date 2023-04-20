@@ -4,7 +4,7 @@
 # You can set these variables from the command line.
 SPHINXOPTS    =
 SPHINXBUILD   = python -msphinx
-SPHINXPROJ    = python-keycloak
+SPHINXPROJ    = python-keycloak-async
 SOURCEDIR     = source
 BUILDDIR      = build
 
