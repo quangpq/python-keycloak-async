@@ -23,7 +23,7 @@ jobs:
           poetry install
       - name: Apply the tag version
         run: |
-          version=${{ github.ref_name }}-${{ github.run_number }}
+          version=${{ github.ref_name }}
           sed -Ei '/^version = /s|= "[0-9.]+"$|= "'${version:-1}'"|' pyproject.toml
       - name: Run build
         run: |
