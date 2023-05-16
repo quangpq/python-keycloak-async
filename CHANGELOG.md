@@ -1,8 +1,20 @@
+## v2.17.0 (2023-05-16)
+
+### Fix
+
+- Fixes `Authorization.load_config` breaking if a scope based permission is linked with anything other than a role based policy. Fixes #445 (#446)
+- issue with app engine reported in #440 (#442)
+
+### Feat
+
+- Add get and delete methods for client authz resources (#435)
+
 ## v2.16.0 (2023-04-20)
 
 ### Refactor
 
 - Migrate to asyncio
+- Initializing KeycloakAdmin without server_url
 
 ## v2.15.3 (2023-04-06)
 

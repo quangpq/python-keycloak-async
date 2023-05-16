@@ -29,10 +29,7 @@
 from builtins import isinstance
 from typing import Optional
 
-import deprecation
-
 from . import urls_patterns
-from ._version import __version__
 from .exceptions import (
     KeycloakDeleteError,
     KeycloakError,
@@ -155,7 +152,7 @@ class KeycloakAdmin:
             self.auto_refresh_token = auto_refresh_token
         if token is not None:
             self.connection.headers = {
-                "Authorization": "Bearer " + self.token.get("access_token"),
+                "Authorization": "Bearer " + token.get("access_token"),
                 "Content-Type": "application/json",
             }
 
@@ -1029,7 +1026,7 @@ class KeycloakAdmin:
         :rtype: dict
         """
         params_path = {"realm-name": self.connection.realm_name, "path": path}
-        data_raw = await self.raw_get(urls_patterns.URL_ADMIN_GROUP_BY_PATH.format(**params_path))
+        data_raw = await self.connection.raw_get(urls_patterns.URL_ADMIN_GROUP_BY_PATH.format(**params_path))
         return raise_error_from_response(data_raw, KeycloakGetError)
 
     async def create_group(self, payload, parent=None, skip_exists=False):
@@ -1248,20 +1245,66 @@ class KeycloakAdmin:
             data_raw, KeycloakPostError, expected_codes=[201], skip_exists=skip_exists
         )
 
+    async def delete_client_authz_resource(self, client_id: str, resource_id: str):
+        """Delete a client resource.
+
+        :param client_id: id in ClientRepresentation
+            https://www.keycloak.org/docs-api/18.0/rest-api/index.html#_clientrepresentation
+        :type client_id: str
+        :param resource_id: id in ResourceRepresentation
+            https://www.keycloak.org/docs-api/18.0/rest-api/index.html#_resourcerepresentation
+        :type resource_id: str
+
+        :return: Keycloak server response
+        :rtype: bytes
+        """
+        params_path = {
+            "realm-name": self.connection.realm_name,
+            "id": client_id,
+            "resource-id": resource_id,
+        }
+        data_raw = await self.connection.raw_delete(
+            urls_patterns.URL_ADMIN_CLIENT_AUTHZ_RESOURCE.format(**params_path)
+        )
+        return raise_error_from_response(data_raw, KeycloakDeleteError, expected_codes=[204])
+
     async def get_client_authz_resources(self, client_id):
         """Get resources from client.
 
         :param client_id: id in ClientRepresentation
             https://www.keycloak.org/docs-api/18.0/rest-api/index.html#_clientrepresentation
         :type client_id: str
-        :return: Keycloak server response
-        :rtype: dict
+        :return: Keycloak server response (ResourceRepresentation)
+        :rtype: list
         """
         params_path = {"realm-name": self.connection.realm_name, "id": client_id}
         data_raw = await self.connection.raw_get(
             urls_patterns.URL_ADMIN_CLIENT_AUTHZ_RESOURCES.format(**params_path)
         )
         return raise_error_from_response(data_raw, KeycloakGetError)
+
+    async def get_client_authz_resource(self, client_id: str, resource_id: str):
+        """Get a client resource.
+
+        :param client_id: id in ClientRepresentation
+            https://www.keycloak.org/docs-api/18.0/rest-api/index.html#_clientrepresentation
+        :type client_id: str
+        :param resource_id: id in ResourceRepresentation
+            https://www.keycloak.org/docs-api/18.0/rest-api/index.html#_resourcerepresentation
+        :type resource_id: str
+
+        :return: Keycloak server response (ResourceRepresentation)
+        :rtype: dict
+        """
+        params_path = {
+            "realm-name": self.connection.realm_name,
+            "id": client_id,
+            "resource-id": resource_id,
+        }
+        data_raw = await self.connection.raw_get(
+            urls_patterns.URL_ADMIN_CLIENT_AUTHZ_RESOURCE.format(**params_path)
+        )
+        return raise_error_from_response(data_raw, KeycloakGetError, expected_codes=[200])
 
     async def create_client_authz_role_based_policy(self, client_id, payload, skip_exists=False):
         """Create role-based policy of client.
